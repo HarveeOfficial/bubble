@@ -636,37 +636,47 @@ class OMRService
         $bounds  = $this->findSheetBounds($image, $width, $height);
         $contentW = $bounds['right'] - $bounds['left'];
         $contentH = $bounds['bottom'] - $bounds['top'];
+        $pxPerMm  = $bounds['pxPerMm'];
+        $pxPerMmV = $bounds['pxPerMmV'];
 
-        // ID grid region (the id-grid-wrapper with actual bubbles):
-        // From CSS: header ~30mm + student-info ~17mm + section-label ~5mm = ~52mm
-        // As fraction of 277mm content height: 52/277 ≈ 18.8%
-        // Grid height: digit-header 5mm + 10 × (5.5mm + 1.2mm margin) = 72mm
-        // Grid bottom at (52 + 72)/277 ≈ 44.8%
-        // Grid width: 10 digit columns × ~9mm each ≈ 90mm out of 186mm ≈ 48%
-        $gridTop    = $bounds['top'] + (int)($contentH * 0.19);
-        $gridBottom = $bounds['top'] + (int)($contentH * 0.45);
-        $gridLeft   = $bounds['left'];
-        $gridRight  = $bounds['left'] + (int)($contentW * 0.50);
+        // Dynamically detect the ID grid header bar
+        $idBounds = $this->findIdGridBounds($image, $bounds, $width, $height);
+
+        if ($idBounds) {
+            $gridLeft      = $idBounds['left'];
+            $gridRight     = $idBounds['right'];
+            $headerBottom  = $idBounds['headerBottom'];
+        } else {
+            // Fallback: proportional estimation
+            $gridLeft      = $bounds['left'];
+            $gridRight     = $bounds['left'] + (int)($contentW * 0.48);
+            $headerBottom  = $bounds['top'] + (int)($contentH * 0.21);
+        }
 
         $gridW = $gridRight - $gridLeft;
-        $gridH = $gridBottom - $gridTop;
 
-        $colW = $gridW / $idDigits;
+        // CSS layout: each id-digit-col is ~8.5mm wide (5.5mm bubble + 3mm margin)
+        // Bubble center at column midpoint (centered via align-items: center)
+        $colWMm    = 8.5;   // Column width in mm
+        $colWPx    = $colWMm * $pxPerMm;
 
-        // Digit header row (dark bar with column number): ~5mm / 72mm ≈ 7%
-        $headerH = (int)($gridH * 0.07);
-        $rowH    = ($gridH - $headerH) / 10;
+        // Row layout: first bubble center 3.35mm below header bottom
+        // (0.6mm top margin + 2.75mm half bubble height)
+        // Row step: 6.7mm (5.5mm bubble + 2×0.6mm margin)
+        $firstRowOffsetMm = 3.35;
+        $rowStepMm        = 6.7;
 
-        $bubbleRx = max(3, (int)($colW * 0.15));
-        $bubbleRy = max(3, (int)($rowH * 0.15));
+        $bubbleRx = max(3, (int)(2.2 * $pxPerMm));
+        $bubbleRy = max(3, (int)(2.2 * $pxPerMmV));
 
         $studentId = '';
 
         for ($d = 0; $d < $idDigits; $d++) {
             $darknessValues = [];
+            $cx = (int)($gridLeft + ($d + 0.5) * $colWPx);
+
             for ($n = 0; $n <= 9; $n++) {
-                $cx = (int)($gridLeft + ($d + 0.5) * $colW);
-                $cy = (int)($gridTop + $headerH + ($n + 0.5) * $rowH);
+                $cy = (int)($headerBottom + ($firstRowOffsetMm + $n * $rowStepMm) * $pxPerMmV);
 
                 $darknessValues[$n] = $this->sampleMarkDarkness(
                     $image, $cx, $cy, $bubbleRx, $bubbleRy, $width, $height, $otsuThreshold
@@ -686,6 +696,115 @@ class OMRService
         ]);
 
         return $studentId;
+    }
+
+    /**
+     * Find the ID grid bounds by detecting its dark header bar.
+     * Returns ['left', 'right', 'headerBottom', 'gridBottom'] or null.
+     */
+    private function findIdGridBounds($image, array $bounds, int $imgW, int $imgH): ?array
+    {
+        $contentH = $bounds['bottom'] - $bounds['top'];
+        $contentW = $bounds['right'] - $bounds['left'];
+
+        // The ID grid header bar sits at roughly 17-22% of content height,
+        // in the left half of the sheet. Search that region.
+        $searchTop    = $bounds['top'] + (int)($contentH * 0.15);
+        $searchBottom = $bounds['top'] + (int)($contentH * 0.28);
+        $searchLeft   = $bounds['left'];
+        $searchRight  = $bounds['left'] + (int)($contentW * 0.55);
+
+        // Vertical scan: find the dark header bar
+        $bands = [];
+        $bandStart = null;
+        $bandEnd   = null;
+
+        for ($y = $searchTop; $y < $searchBottom; $y++) {
+            $sum = 0;
+            $count = 0;
+            for ($x = $searchLeft; $x <= min($searchRight, $imgW - 1); $x += 4) {
+                $rgb = imagecolorat($image, $x, $y);
+                $sum += ($rgb & 0xFF);
+                $count++;
+            }
+            $avg = $count > 0 ? $sum / $count : 255;
+
+            if ($avg < 180) {
+                if ($bandStart === null) $bandStart = $y;
+                $bandEnd = $y;
+            } elseif ($bandStart !== null && ($y - $bandEnd) > 3) {
+                $bands[] = ['start' => $bandStart, 'end' => $bandEnd, 'thickness' => $bandEnd - $bandStart + 1];
+                $bandStart = null;
+                $bandEnd   = null;
+            }
+        }
+        if ($bandStart !== null) {
+            $bands[] = ['start' => $bandStart, 'end' => $bandEnd, 'thickness' => $bandEnd - $bandStart + 1];
+        }
+
+        if (empty($bands)) {
+            Log::info('OMR: No ID grid header bar found');
+            return null;
+        }
+
+        // Pick the thickest band (the digit-header row)
+        usort($bands, fn($a, $b) => $b['thickness'] <=> $a['thickness']);
+        $darkBandStart = $bands[0]['start'];
+        $darkBandEnd   = $bands[0]['end'];
+
+        // Horizontal profile within the dark band to find left/right edges
+        $profile = [];
+        for ($x = $searchLeft; $x <= min($searchRight, $imgW - 1); $x++) {
+            $sum = 0;
+            $count = 0;
+            for ($y = $darkBandStart; $y <= $darkBandEnd; $y += 2) {
+                $rgb = imagecolorat($image, $x, min($y, $imgH - 1));
+                $sum += ($rgb & 0xFF);
+                $count++;
+            }
+            $profile[$x] = $count > 0 ? $sum / $count : 255;
+        }
+
+        // Find the contiguous dark horizontal region
+        $inDark = false;
+        $gridLeft = $searchLeft;
+        $gridRight = $searchRight;
+        foreach ($profile as $x => $brightness) {
+            if ($brightness < 120 && !$inDark) {
+                $inDark = true;
+                $gridLeft = $x;
+            } elseif ($brightness >= 120 && $inDark) {
+                $gridRight = $x - 1;
+                break;
+            }
+        }
+        if ($inDark && $gridRight === $searchRight) {
+            // Didn't find right edge, use last dark pixel
+            $gridRight = array_key_last(array_filter($profile, fn($b) => $b < 120));
+        }
+
+        // Find headerBottom: scan down from dark band end to find where it turns bright
+        $headerBottom = $darkBandEnd + 1;
+        $sampleX = (int)(($gridLeft + $gridRight) / 2);
+        for ($y = $darkBandEnd + 1; $y < min($searchBottom + 200, $imgH); $y++) {
+            $rgb = imagecolorat($image, min($sampleX, $imgW - 1), $y);
+            if (($rgb & 0xFF) > 180) {
+                $headerBottom = $y;
+                break;
+            }
+        }
+
+        Log::debug('OMR: ID grid header detected', [
+            'left' => $gridLeft, 'right' => $gridRight,
+            'headerBottom' => $headerBottom,
+            'bandThickness' => $bands[0]['thickness'],
+        ]);
+
+        return [
+            'left'         => $gridLeft,
+            'right'        => $gridRight,
+            'headerBottom' => $headerBottom,
+        ];
     }
 
     /**
@@ -1310,25 +1429,34 @@ class OMRService
         }
 
         // === ID Grid Debug ===
-        $idGridTop    = $bounds['top'] + (int)($contentH * 0.19);
-        $idGridBottom = $bounds['top'] + (int)($contentH * 0.45);
-        $idGridLeft   = $bounds['left'];
-        $idGridRight  = $bounds['left'] + (int)($contentW * 0.50);
-        $idGridW = $idGridRight - $idGridLeft;
-        $idGridH = $idGridBottom - $idGridTop;
+        $idBounds = $this->findIdGridBounds($grayImage, $bounds, $width, $height);
 
-        imagerectangle($image, $idGridLeft, $idGridTop, $idGridRight, $idGridBottom, $greenLine);
+        if ($idBounds) {
+            $idGridLeft     = $idBounds['left'];
+            $idGridRight    = $idBounds['right'];
+            $idHeaderBottom = $idBounds['headerBottom'];
+        } else {
+            $idGridLeft     = $bounds['left'];
+            $idGridRight    = $bounds['left'] + (int)($contentW * 0.48);
+            $idHeaderBottom = $bounds['top'] + (int)($contentH * 0.21);
+        }
 
-        $idColW = $idGridW / $idDigits;
-        $idHeaderH = (int)($idGridH * 0.07);
-        $idRowH = ($idGridH - $idHeaderH) / 10;
-        $idBubbleRx = max(3, (int)($idColW * 0.15));
-        $idBubbleRy = max(3, (int)($idRowH * 0.15));
+        // CSS: column width 8.5mm, row step 6.7mm, first row offset 3.35mm
+        $idColWPx          = 8.5 * $pxPerMm;
+        $idFirstRowOffMm   = 3.35;
+        $idRowStepMm       = 6.7;
+
+        $idBubbleRx = max(3, (int)(2.2 * $pxPerMm));
+        $idBubbleRy = max(3, (int)(2.2 * $pxPerMmV));
+
+        // Draw ID grid boundary
+        $idGridBottom = (int)($idHeaderBottom + ($idFirstRowOffMm + 9 * $idRowStepMm + 3.35) * $pxPerMmV);
+        imagerectangle($image, $idGridLeft, $idBounds ? $idBounds['headerBottom'] - (int)(5 * $pxPerMmV) : $idGridLeft, $idGridRight, $idGridBottom, $greenLine);
 
         for ($d = 0; $d < $idDigits; $d++) {
+            $cx = (int)($idGridLeft + ($d + 0.5) * $idColWPx);
             for ($n = 0; $n <= 9; $n++) {
-                $cx = (int)($idGridLeft + ($d + 0.5) * $idColW);
-                $cy = (int)($idGridTop + $idHeaderH + ($n + 0.5) * $idRowH);
+                $cy = (int)($idHeaderBottom + ($idFirstRowOffMm + $n * $idRowStepMm) * $pxPerMmV);
                 imageellipse($image, $cx, $cy, $idBubbleRx * 2, $idBubbleRy * 2, $greenLine);
                 imagefilledellipse($image, $cx, $cy, $idBubbleRx * 2, $idBubbleRy * 2, $green);
             }
