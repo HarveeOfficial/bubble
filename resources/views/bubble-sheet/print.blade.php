@@ -353,16 +353,16 @@
         </div>
 
         {{-- Student ID Bubble Grid (machine-readable) --}}
-        <div class="id-grid-section">
+        <div class="id-grid-section" style="margin-left: 8mm;">
             <div class="section-label">Student ID (shade one digit per column)</div>
             <div class="id-grid-wrapper">
-                @for($d = 0; $d < $idDigits; $d++)
-                    <div class="id-digit-col">
-                        <div class="digit-header">{{ $d + 1 }}</div>
-                        @for($n = 0; $n <= 9; $n++)
-                            <div class="id-bubble">{{ $n }}</div>
-                        @endfor
-                    </div>
+            @for($d = 0; $d < $idDigits; $d++)
+                <div class="id-digit-col">
+                <div class="digit-header">{{ $d + 1 }}</div>
+                @for($n = 0; $n <= 9; $n++)
+                    <div class="id-bubble">{{ $n }}</div>
+                @endfor
+                </div>
                 @endfor
             </div>
         </div>

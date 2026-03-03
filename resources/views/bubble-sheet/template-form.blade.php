@@ -83,7 +83,7 @@
 
             <div>
                 <label for="id_digits" class="block text-sm font-medium text-gray-700 mb-1">Student ID Digits <span class="text-red-500">*</span></label>
-                <input type="number" name="id_digits" id="id_digits" value="{{ old('id_digits', 10) }}" min="1" max="15" required
+                <input type="number" name="id_digits" id="id_digits" value="{{ old('id_digits', 7) }}" min="1" max="15" required
                        class="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm border px-3 py-2">
                 <p class="text-xs text-gray-400 mt-1">Number of digit columns in the Student ID bubble grid (scannable).</p>
                 @error('id_digits') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror

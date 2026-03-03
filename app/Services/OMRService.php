@@ -619,7 +619,7 @@ class OMRService
      * Detect the student ID from the scannable bubble grid using OMR.
      * The grid has `$idDigits` columns, each with digits 0-9 vertically.
      */
-    public function detectStudentId(string $imagePath, int $idDigits = 10): ?string
+    public function detectStudentId(string $imagePath, int $idDigits = 7): ?string
     {
         $image = $this->loadImage($imagePath);
         if (!$image) {
@@ -1321,7 +1321,7 @@ class OMRService
      *
      * @return string|null  Path to the generated debug image, or null on failure
      */
-    public function generateDebugImage(string $imagePath, int $totalItems, int $choicesPerItem, int $columns = 0, int $idDigits = 10): ?string
+    public function generateDebugImage(string $imagePath, int $totalItems, int $choicesPerItem, int $columns = 0, int $idDigits = 7): ?string
     {
         $image = $this->loadImage($imagePath);
         if (!$image) return null;
