@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AnswerKey;
 use App\Models\Exam;
 use App\Models\ExamResult;
+use App\Models\Student;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -109,6 +110,15 @@ class OMRService
             // Auto-fill student_id if detected and not already provided
             if ($detectedStudentId && !$exam->student_id) {
                 $updateData['student_id'] = $detectedStudentId;
+            }
+
+            // Auto-fill student_name from roster if available
+            $sid = $detectedStudentId ?: $exam->student_id;
+            if ($sid && !$exam->student_name) {
+                $student = Student::where('student_id', $sid)->first();
+                if ($student) {
+                    $updateData['student_name'] = $student->name;
+                }
             }
 
             $exam->update($updateData);

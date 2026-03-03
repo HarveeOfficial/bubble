@@ -3,6 +3,7 @@
 use App\Http\Controllers\AnswerKeyController;
 use App\Http\Controllers\BubbleSheetController;
 use App\Http\Controllers\ExamController;
+use App\Http\Controllers\StudentController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -26,3 +27,10 @@ Route::resource('exams', ExamController::class);
 
 Route::get('/bubble-sheet/template', [BubbleSheetController::class, 'templateForm'])->name('bubble-sheet.template-form');
 Route::get('/bubble-sheet/generate', [BubbleSheetController::class, 'generate'])->name('bubble-sheet.generate');
+
+Route::get('/students', [StudentController::class, 'index'])->name('students.index');
+Route::post('/students', [StudentController::class, 'store'])->name('students.store');
+Route::get('/students/import', [StudentController::class, 'importForm'])->name('students.import');
+Route::post('/students/import', [StudentController::class, 'import'])->name('students.import.store');
+Route::delete('/students/destroy-all', [StudentController::class, 'destroyAll'])->name('students.destroy-all');
+Route::delete('/students/{student}', [StudentController::class, 'destroy'])->name('students.destroy');

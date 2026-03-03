@@ -38,6 +38,10 @@
                            class="px-3 py-2 rounded-md text-sm font-medium {{ request()->routeIs('bubble-sheet.*') ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50' }}">
                             Bubble Sheet
                         </a>
+                        <a href="{{ route('students.index') }}"
+                           class="px-3 py-2 rounded-md text-sm font-medium {{ request()->routeIs('students.*') ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50' }}">
+                            Students
+                        </a>
                     </div>
                 </div>
             </div>
