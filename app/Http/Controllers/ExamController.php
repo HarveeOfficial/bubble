@@ -15,8 +15,26 @@ class ExamController extends Controller
 
     public function index()
     {
-        $exams = Exam::with('answerKey')->latest()->paginate(15);
-        return view('exams.index', compact('exams'));
+        $answerKeys = AnswerKey::withCount('exams')
+            ->with(['exams' => function ($q) {
+                $q->where('status', 'processed');
+            }])
+            ->latest()
+            ->paginate(15);
+
+        return view('exams.index', compact('answerKeys'));
+    }
+
+    /**
+     * Show all students/exams that used a given answer key.
+     */
+    public function participants(AnswerKey $answerKey)
+    {
+        $exams = Exam::where('answer_key_id', $answerKey->id)
+            ->latest()
+            ->paginate(20);
+
+        return view('exams.participants', compact('answerKey', 'exams'));
     }
 
     public function create()

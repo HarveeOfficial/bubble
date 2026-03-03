@@ -774,7 +774,7 @@ class BubbleSheetService
      */
     private function calculateBubblePositions(int $columns, int $choicesPerItem): array
     {
-        $firstBubbleMm = 11.5;  // 2.5mm row-pad + 7mm question-num (border-box incl. 2mm pad) + 3mm half-bubble - 1mm tweak
+        $firstBubbleMm = 10.5;  // shifted 1mm left for better alignment
         $bubbleStepMm  = 8.0;   // 6mm bubble + 2mm gap
 
         $centersMm = [];

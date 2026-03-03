@@ -5,7 +5,7 @@
 <div class="flex items-center justify-between mb-6">
     <div>
         <h1 class="text-2xl font-bold text-gray-900">Exams</h1>
-        <p class="text-gray-500 mt-1">View and manage scanned bubble sheets.</p>
+        <p class="text-gray-500 mt-1">View exams and the students who took them.</p>
     </div>
     <a href="{{ route('exams.create') }}" class="inline-flex items-center px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition shadow-sm">
         <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -15,84 +15,76 @@
     </a>
 </div>
 
-@if($exams->count())
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
-                <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Answer Key</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Score</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Percentage</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                </tr>
-            </thead>
-            <tbody class="bg-white divide-y divide-gray-100">
-                @foreach($exams as $exam)
-                    <tr class="hover:bg-gray-50 transition">
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            <a href="{{ route('exams.show', $exam) }}" class="text-sm font-medium text-indigo-600 hover:text-indigo-800">
-                                {{ $exam->student_name ?? 'Unknown' }}
-                            </a>
-                            @if($exam->student_id)
-                                <p class="text-xs text-gray-400">ID: {{ $exam->student_id }}</p>
+@if($answerKeys->count())
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        @foreach($answerKeys as $ak)
+            @php
+                $processed = $ak->exams->count();
+                $avg = $processed > 0 ? $ak->exams->avg('percentage') : null;
+                $highest = $processed > 0 ? $ak->exams->max('percentage') : null;
+                $lowest = $processed > 0 ? $ak->exams->min('percentage') : null;
+            @endphp
+            <a href="{{ route('exams.participants', $ak) }}" class="block bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md hover:border-indigo-200 transition group">
+                <div class="p-5">
+                    <div class="flex items-start justify-between">
+                        <div>
+                            <h3 class="text-base font-semibold text-gray-900 group-hover:text-indigo-600 transition">{{ $ak->name }}</h3>
+                            @if($ak->subject)
+                                <p class="text-xs text-gray-400 mt-0.5">{{ $ak->subject }}</p>
                             @endif
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {{ $exam->answerKey->name ?? 'N/A' }}
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {{ $exam->status === 'processed' ? $exam->score . '/' . $exam->total_items : '—' }}
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            @if($exam->status === 'processed')
-                                <div class="flex items-center space-x-2">
-                                    <div class="w-16 bg-gray-200 rounded-full h-2">
-                                        <div class="h-2 rounded-full {{ $exam->percentage >= 75 ? 'bg-green-500' : ($exam->percentage >= 50 ? 'bg-amber-500' : 'bg-red-500') }}"
-                                             style="width: {{ min($exam->percentage, 100) }}%"></div>
-                                    </div>
-                                    <span class="text-sm font-medium {{ $exam->percentage >= 75 ? 'text-green-600' : ($exam->percentage >= 50 ? 'text-amber-600' : 'text-red-600') }}">
-                                        {{ number_format($exam->percentage, 1) }}%
-                                    </span>
-                                </div>
-                            @else
-                                <span class="text-sm text-gray-400">—</span>
-                            @endif
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            @if($exam->status === 'processed')
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Processed</span>
-                            @elseif($exam->status === 'pending')
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Pending</span>
-                            @else
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Failed</span>
-                            @endif
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ $exam->created_at->format('M d, Y') }}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
-                            <a href="{{ route('exams.show', $exam) }}" class="text-gray-400 hover:text-gray-600 mr-3">View</a>
-                            <form action="{{ route('exams.destroy', $exam) }}" method="POST" class="inline" onsubmit="return confirm('Delete this exam?')">
-                                @csrf @method('DELETE')
-                                <button type="submit" class="text-red-400 hover:text-red-600">Delete</button>
-                            </form>
-                        </td>
-                    </tr>
-                @endforeach
-            </tbody>
-        </table>
+                        </div>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">
+                            {{ $ak->exams_count }} {{ Str::plural('student', $ak->exams_count) }}
+                        </span>
+                    </div>
+
+                    <div class="mt-4 grid grid-cols-3 gap-3 text-center">
+                        <div>
+                            <p class="text-xs text-gray-400">Items</p>
+                            <p class="text-sm font-semibold text-gray-900">{{ $ak->total_items }}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">Choices</p>
+                            <p class="text-sm font-semibold text-gray-900">{{ $ak->choices_per_item }}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">Average</p>
+                            <p class="text-sm font-semibold {{ $avg !== null ? ($avg >= 75 ? 'text-green-600' : ($avg >= 50 ? 'text-amber-600' : 'text-red-600')) : 'text-gray-400' }}">
+                                {{ $avg !== null ? number_format($avg, 1) . '%' : '—' }}
+                            </p>
+                        </div>
+                    </div>
+
+                    @if($processed > 0)
+                        <div class="mt-3 flex items-center space-x-2">
+                            <div class="flex-1 bg-gray-200 rounded-full h-1.5">
+                                <div class="h-1.5 rounded-full {{ $avg >= 75 ? 'bg-green-500' : ($avg >= 50 ? 'bg-amber-500' : 'bg-red-500') }}"
+                                     style="width: {{ min($avg, 100) }}%"></div>
+                            </div>
+                        </div>
+                        <div class="mt-2 flex justify-between text-xs text-gray-400">
+                            <span>Low: {{ number_format($lowest, 1) }}%</span>
+                            <span>High: {{ number_format($highest, 1) }}%</span>
+                        </div>
+                    @endif
+                </div>
+                <div class="border-t border-gray-100 px-5 py-3">
+                    <p class="text-xs text-gray-400">Created {{ $ak->created_at->format('M d, Y') }}</p>
+                </div>
+            </a>
+        @endforeach
     </div>
-    <div class="mt-4">
-        {{ $exams->links() }}
+
+    <div class="mt-6">
+        {{ $answerKeys->links() }}
     </div>
 @else
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 px-6 py-16 text-center">
         <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
         </svg>
         <h3 class="text-lg font-medium text-gray-900 mb-2">No exams yet</h3>
-        <p class="text-gray-500 mb-6">Upload a bubble sheet image to start grading.</p>
+        <p class="text-gray-500 mb-6">Create an answer key and upload bubble sheets to start grading.</p>
         <a href="{{ route('exams.create') }}" class="inline-flex items-center px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition">
             Scan Bubble Sheet
         </a>

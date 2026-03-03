@@ -23,6 +23,7 @@ Route::resource('answer-keys', AnswerKeyController::class);
 Route::post('/exams/batch', [ExamController::class, 'storeBatch'])->name('exams.store-batch');
 Route::post('/exams/{exam}/reprocess', [ExamController::class, 'reprocess'])->name('exams.reprocess');
 Route::get('/exams/{exam}/debug-image', [ExamController::class, 'debugImage'])->name('exams.debug-image');
+Route::get('/exams/answer-key/{answerKey}', [ExamController::class, 'participants'])->name('exams.participants');
 Route::resource('exams', ExamController::class);
 
 Route::get('/bubble-sheet/template', [BubbleSheetController::class, 'templateForm'])->name('bubble-sheet.template-form');
