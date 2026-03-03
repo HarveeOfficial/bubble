@@ -347,6 +347,7 @@ class OMRService
         $contentW = $bounds['right'] - $bounds['left'];
         $contentH = $bounds['bottom'] - $bounds['top'];
         $pxPerMm  = $bounds['pxPerMm'];
+        $pxPerMmV = $bounds['pxPerMmV'];
 
         // Deskew correction — compute skew angle from corner markers
         $skewAngle = $this->computeSkewAngle($bounds, $width, $height);
@@ -380,25 +381,23 @@ class OMRService
             if (isset($detectedCols[$col])) {
                 $colLeft    = $detectedCols[$col]['left'];
                 $colWidth   = $detectedCols[$col]['right'] - $colLeft;
-                // Add 1mm gap below header to reach actual first question row
-                $rowsTop    = $detectedCols[$col]['headerBottom'] + (int)(1.0 * $pxPerMm);
+                $rowsTop    = $detectedCols[$col]['headerBottom'];
                 $rowsBottom = $detectedCols[$col]['gridBottom'] ?? $searchBottom;
             } else {
                 $colGapPx   = (int)($contentW * 0.022);
                 $calcColW   = (int)(($contentW - ($columns - 1) * $colGapPx) / $columns);
                 $colLeft    = $bounds['left'] + $col * ($calcColW + $colGapPx);
                 $colWidth   = $calcColW;
-                // 14% of search range ≈ 7% of content, enough to skip past the header bar
-                $rowsTop    = $searchTop + (int)(($searchBottom - $searchTop) * 0.14);
+                $rowsTop    = $searchTop + (int)(($searchBottom - $searchTop) * 0.12);
                 $rowsBottom = $searchBottom;
             }
 
             $rowAreaH = $rowsBottom - $rowsTop;
             $rowH     = $rowAreaH / $itemsInCol;
 
-            // Sampling radius: ~2mm (70% of 3mm bubble radius, avoids border)
-            $bubbleRx = max(5, (int)(2.0 * $pxPerMm));
-            $bubbleRy = max(5, (int)(2.0 * $pxPerMm));
+            // Sampling radius: ~2.7mm (90% of 3mm bubble radius)
+            $bubbleRx = max(5, (int)(2.7 * $pxPerMm));
+            $bubbleRy = max(5, (int)(2.7 * $pxPerMmV));
 
             for ($row = 0; $row < $itemsInCol; $row++) {
                 $q  = $startItem + $row;
@@ -819,8 +818,9 @@ class OMRService
             $insetX = (int)($sheetW * 0.026);
             $insetY = (int)($sheetH * 0.011);
 
-            // Physical scale: 196mm between TL and TR marker centers
-            $pxPerMm = $sheetW / 196.0;
+            // Physical scale from corner marker distances
+            $pxPerMm  = $sheetW / 196.0;  // Horizontal: 196mm between TL and TR
+            $pxPerMmV = $sheetH / 283.0;  // Vertical: 283mm between TL and BL
 
             return [
                 'left'           => min($tl['x'], $bl['x']) + $insetX,
@@ -830,6 +830,7 @@ class OMRService
                 'markers_found'  => true,
                 'corners'        => compact('tl', 'tr', 'bl', 'br'),
                 'pxPerMm'        => $pxPerMm,
+                'pxPerMmV'       => $pxPerMmV,
             ];
         }
 
@@ -843,6 +844,7 @@ class OMRService
             'markers_found'  => false,
             'corners'        => null,
             'pxPerMm'        => $width / 210.0,
+            'pxPerMmV'       => $height / 297.0,
         ];
     }
 
@@ -1018,13 +1020,12 @@ class OMRService
         }
         unset($col);
 
-        // Step 4: Adjust column boundaries to match the actual column containers.
-        // The detected dark header bar already spans the full .col-header background,
-        // which matches the .bubble-column width. Only apply minimal tolerance (±3px)
-        // to account for anti-aliasing at the edges of the dark region.
+        // Step 4: The detected dark header bar left edge marks the true column
+        // container boundary. No left expansion needed — the firstBubbleMm offset
+        // already accounts for the CSS padding + question-num width.
+        // Only expand right edge slightly for anti-aliasing tolerance in gridBottom scan.
         for ($i = 0; $i < count($columns); $i++) {
-            $columns[$i]['left']  = max($columns[$i]['left'] - 3, $searchLeft);
-            $columns[$i]['right'] = min($columns[$i]['right'] + 3, $searchRight);
+            $columns[$i]['right'] += 3;
         }
 
         // Step 5: Find the bottom of the answer grid
@@ -1088,7 +1089,7 @@ class OMRService
      */
     private function calculateBubblePositions(int $columns, int $choicesPerItem): array
     {
-        $firstBubbleMm = 12.5;  // 2.5mm row-pad + 7mm question-num (border-box incl. 2mm pad) + 3mm half-bubble
+        $firstBubbleMm = 11.5;  // 2.5mm row-pad + 7mm question-num (border-box incl. 2mm pad) + 3mm half-bubble - 1mm tweak
         $bubbleStepMm  = 8.0;   // 6mm bubble + 2mm gap
 
         $centersMm = [];
@@ -1218,6 +1219,7 @@ class OMRService
         $contentW = $bounds['right'] - $bounds['left'];
         $contentH = $bounds['bottom'] - $bounds['top'];
         $pxPerMm  = $bounds['pxPerMm'];
+        $pxPerMmV = $bounds['pxPerMmV'];
 
         if ($columns <= 0) {
             $columns = $this->inferColumnCount($totalItems);
@@ -1273,22 +1275,22 @@ class OMRService
             if (isset($detectedCols[$col])) {
                 $colLeft    = $detectedCols[$col]['left'];
                 $colWidth   = $detectedCols[$col]['right'] - $colLeft;
-                $rowsTop    = $detectedCols[$col]['headerBottom'] + (int)(1.0 * $pxPerMm);
+                $rowsTop    = $detectedCols[$col]['headerBottom'];
                 $rowsBottom = $detectedCols[$col]['gridBottom'] ?? $searchBottom;
             } else {
                 $colGapPx   = (int)($contentW * 0.022);
                 $calcColW   = (int)(($contentW - ($columns - 1) * $colGapPx) / $columns);
                 $colLeft    = $bounds['left'] + $col * ($calcColW + $colGapPx);
                 $colWidth   = $calcColW;
-                $rowsTop    = $searchTop + (int)(($searchBottom - $searchTop) * 0.14);
+                $rowsTop    = $searchTop + (int)(($searchBottom - $searchTop) * 0.12);
                 $rowsBottom = $searchBottom;
             }
 
             $rowAreaH = $rowsBottom - $rowsTop;
             $rowH     = $rowAreaH / $itemsInCol;
 
-            $bubbleRx = max(5, (int)(2.0 * $pxPerMm));
-            $bubbleRy = max(5, (int)(2.0 * $pxPerMm));
+            $bubbleRx = max(5, (int)(2.7 * $pxPerMm));
+            $bubbleRy = max(5, (int)(2.7 * $pxPerMmV));
 
             // Draw column boundary
             imagerectangle($image, $colLeft, $rowsTop - 5, $colLeft + $colWidth, $rowsBottom, $yellow);
