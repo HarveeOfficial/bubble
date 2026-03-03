@@ -57,6 +57,7 @@ class StudentController extends Controller
 
         $idCol = array_search('id', $header);
         $nameCol = array_search('name', $header);
+        $sectionCol = array_search('section', $header);
 
         if ($idCol === false || $nameCol === false) {
             fclose($handle);
@@ -70,22 +71,25 @@ class StudentController extends Controller
         while (($row = fgetcsv($handle)) !== false) {
             $studentId = trim($row[$idCol] ?? '');
             $name = trim($row[$nameCol] ?? '');
+            $section = $sectionCol !== false ? trim($row[$sectionCol] ?? '') : '';
 
             if (empty($studentId) || empty($name)) {
                 $skipped++;
                 continue;
             }
 
+            $data = ['name' => $name];
+            if (!empty($section)) {
+                $data['section'] = $section;
+            }
+
             $student = Student::where('student_id', $studentId)->first();
 
             if ($student) {
-                $student->update(['name' => $name]);
+                $student->update($data);
                 $updated++;
             } else {
-                Student::create([
-                    'student_id' => $studentId,
-                    'name' => $name,
-                ]);
+                Student::create(array_merge(['student_id' => $studentId], $data));
                 $imported++;
             }
         }
@@ -106,18 +110,20 @@ class StudentController extends Controller
         $request->validate([
             'student_id' => 'required|string|max:20',
             'name'       => 'required|string|max:255',
+            'section'    => 'nullable|string|max:100',
         ]);
 
         $student = Student::where('student_id', $request->student_id)->first();
 
         if ($student) {
-            $student->update(['name' => $request->name]);
+            $student->update(['name' => $request->name, 'section' => $request->section]);
             return redirect()->route('students.index')->with('success', 'Student updated.');
         }
 
         Student::create([
             'student_id' => $request->student_id,
             'name'       => $request->name,
+            'section'    => $request->section,
         ]);
 
         return redirect()->route('students.index')->with('success', 'Student added.');

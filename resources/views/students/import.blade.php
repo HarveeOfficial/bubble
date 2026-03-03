@@ -41,12 +41,12 @@
 
             <div class="mt-5 p-4 bg-gray-50 rounded-lg">
                 <h4 class="text-sm font-medium text-gray-700 mb-2">CSV Format</h4>
-                <p class="text-xs text-gray-500 mb-2">The file must have a header row with <strong>id</strong> and <strong>name</strong> columns:</p>
+                <p class="text-xs text-gray-500 mb-2">The file must have a header row with <strong>id</strong>, <strong>name</strong>, and optionally <strong>section</strong> columns:</p>
                 <div class="bg-white border border-gray-200 rounded-md p-3 font-mono text-xs text-gray-700">
-                    <div>id,name</div>
-                    <div>1234567,Juan Dela Cruz</div>
-                    <div>2345678,Maria Santos</div>
-                    <div>3456789,Jose Rizal</div>
+                    <div>id,name,section</div>
+                    <div>1234567,Juan Dela Cruz,BSIT-3A</div>
+                    <div>2345678,Maria Santos,BSIT-3A</div>
+                    <div>3456789,Jose Rizal,BSCS-2B</div>
                 </div>
             </div>
         </div>

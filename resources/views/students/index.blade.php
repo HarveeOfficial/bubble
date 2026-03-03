@@ -40,6 +40,12 @@
                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
                    placeholder="e.g. Juan Dela Cruz">
         </div>
+        <div class="flex-shrink-0">
+            <label for="section" class="block text-xs font-medium text-gray-500 mb-1">Section</label>
+            <input type="text" name="section" id="section" value="{{ old('section') }}"
+                   class="w-40 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                   placeholder="e.g. BSIT-3A">
+        </div>
         <button type="submit" class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition shadow-sm">
             Add
         </button>
@@ -59,7 +65,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
         </svg>
         <h3 class="text-lg font-medium text-gray-500 mb-2">No students imported yet</h3>
-        <p class="text-gray-400 mb-4">Import a CSV file with <code class="bg-gray-100 px-1 rounded">id</code> and <code class="bg-gray-100 px-1 rounded">name</code> columns.</p>
+        <p class="text-gray-400 mb-4">Import a CSV file with <code class="bg-gray-100 px-1 rounded">id</code>, <code class="bg-gray-100 px-1 rounded">name</code>, and <code class="bg-gray-100 px-1 rounded">section</code> columns.</p>
         <a href="{{ route('students.import') }}" class="inline-flex items-center px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition">
             Import CSV
         </a>
@@ -71,6 +77,7 @@
                 <tr>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student ID</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Section</th>
                     <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
             </thead>
@@ -79,6 +86,7 @@
                     <tr class="hover:bg-gray-50">
                         <td class="px-6 py-3 text-sm font-mono text-gray-900">{{ $student->student_id }}</td>
                         <td class="px-6 py-3 text-sm text-gray-700">{{ $student->name }}</td>
+                        <td class="px-6 py-3 text-sm text-gray-500">{{ $student->section ?? '—' }}</td>
                         <td class="px-6 py-3 text-right">
                             <form action="{{ route('students.destroy', $student) }}" method="POST" class="inline" onsubmit="return confirm('Remove this student?')">
                                 @csrf

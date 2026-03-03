@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AnswerKey;
 use App\Models\Exam;
+use App\Models\Student;
 use App\Services\OMRService;
 use Illuminate\Http\Request;
 
@@ -28,13 +29,31 @@ class ExamController extends Controller
     /**
      * Show all students/exams that used a given answer key.
      */
-    public function participants(AnswerKey $answerKey)
+    public function participants(AnswerKey $answerKey, Request $request)
     {
-        $exams = Exam::where('answer_key_id', $answerKey->id)
-            ->latest()
-            ->paginate(20);
+        // Get all distinct sections for students who took this exam
+        $studentIds = Exam::where('answer_key_id', $answerKey->id)
+            ->whereNotNull('student_id')
+            ->pluck('student_id');
+        $sections = Student::whereIn('student_id', $studentIds)
+            ->whereNotNull('section')
+            ->where('section', '!=', '')
+            ->distinct()
+            ->orderBy('section')
+            ->pluck('section');
 
-        return view('exams.participants', compact('answerKey', 'exams'));
+        $query = Exam::where('answer_key_id', $answerKey->id);
+
+        // Filter by section if selected
+        $selectedSection = $request->query('section');
+        if ($selectedSection) {
+            $sectionStudentIds = Student::where('section', $selectedSection)->pluck('student_id');
+            $query->whereIn('student_id', $sectionStudentIds);
+        }
+
+        $exams = $query->latest()->paginate(20)->appends(['section' => $selectedSection]);
+
+        return view('exams.participants', compact('answerKey', 'exams', 'sections', 'selectedSection'));
     }
 
     public function create()

@@ -21,6 +21,23 @@
     </div>
 </div>
 
+{{-- Section Filter --}}
+@if($sections->count() > 0)
+    <div class="mb-6 flex items-center space-x-3">
+        <span class="text-sm text-gray-500">Filter by section:</span>
+        <a href="{{ route('exams.participants', $answerKey) }}"
+           class="px-3 py-1.5 text-xs font-medium rounded-full transition {{ !$selectedSection ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
+            All
+        </a>
+        @foreach($sections as $section)
+            <a href="{{ route('exams.participants', ['answerKey' => $answerKey, 'section' => $section]) }}"
+               class="px-3 py-1.5 text-xs font-medium rounded-full transition {{ $selectedSection === $section ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
+                {{ $section }}
+            </a>
+        @endforeach
+    </div>
+@endif
+
 {{-- Stats Summary --}}
 @php
     $processedExams = $exams->where('status', 'processed');
