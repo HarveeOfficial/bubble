@@ -154,6 +154,7 @@ class BubbleSheetService
 
         // Bubble center X positions as absolute mm offsets from column left
         $bubblePositions = $this->calculateBubblePositions($columns, $choicesPerItem);
+        $templateColWidthMm = $this->getTemplateColumnWidthMm($columns);
 
         $answers = [];
 
@@ -181,8 +182,11 @@ class BubbleSheetService
             $rowAreaH = $rowsBottom - $rowsTop;
             $rowH     = $rowAreaH / $itemsInCol;
 
-            // Sampling radius: ~2.7mm (90% of 3mm bubble radius)
-            $bubbleRx = max(5, (int)(2.7 * $pxPerMm));
+            // Use per-column horizontal scale to handle perspective distortion.
+            $colPxPerMm = max(0.1, $colWidth / max(1.0, $templateColWidthMm));
+
+            // Sampling radius follows local scale (X from column width, Y from row spacing).
+            $bubbleRx = max(5, (int)(2.7 * $colPxPerMm));
             $bubbleRy = max(5, (int)(2.7 * $pxPerMmV));
 
             for ($row = 0; $row < $itemsInCol; $row++) {
@@ -191,7 +195,7 @@ class BubbleSheetService
 
                 $darknessValues = [];
                 for ($c = 0; $c < $choicesPerItem; $c++) {
-                    $cx = (int)($colLeft + $bubblePositions['centersMm'][$c] * $pxPerMm);
+                    $cx = (int)($colLeft + $bubblePositions['centersMm'][$c] * $colPxPerMm);
                     $darknessValues[$c] = $this->sampleRegionDarkness(
                         $image, $cx, $cy, $bubbleRx, $bubbleRy, $width, $height
                     );
@@ -622,14 +626,6 @@ class BubbleSheetService
             ];
         }
 
-        // Normalize: all column headers end at the same Y coordinate,
-        // so use the maximum headerBottom across all detected columns.
-        $maxHeaderBottom = max(array_column($columns, 'headerBottom'));
-        foreach ($columns as &$col) {
-            $col['headerBottom'] = $maxHeaderBottom;
-        }
-        unset($col);
-
         // Step 4: The detected dark header bar left edge marks the true column
         // container boundary. No left expansion needed — the firstBubbleMm offset
         // already accounts for the CSS padding + question-num width.
@@ -638,34 +634,27 @@ class BubbleSheetService
             $columns[$i]['right'] += 3;
         }
 
-        // Step 5: Find the bottom of the answer grid by scanning down
-        // the left edge of the first column. The column has a CSS border,
-        // so look for where the border/content ends (bright area below last row).
-        $firstCol = $columns[0];
-        $scanX = $firstCol['left'] + (int)(($firstCol['right'] - $firstCol['left']) * 0.5);
-        $gridBottom = $searchBottom; // fallback
-
-        // Scan from the bottom upward to find the last dark-ish row
-        for ($y = min($searchBottom, $imgH - 1); $y > $maxHeaderBottom; $y--) {
-            $rgb = imagecolorat($image, min($scanX, $imgW - 1), $y);
-            // Inside the column: alternating white/light-gray rows, bubbles with outlines
-            // Below the column: pure white/very light (footer area)
-            // The column bottom border will show as a thin dark line
-            if (($rgb & 0xFF) < 220) {
-                $gridBottom = $y + 1;
-                break;
-            }
-        }
-
+        // Step 5: Find the bottom of each answer column independently.
+        // Do not force a shared bottom Y; perspective/keystone distortion can make
+        // outer columns sit slightly higher/lower than the center column.
         foreach ($columns as &$col) {
+            $scanX = $col['left'] + (int)(($col['right'] - $col['left']) * 0.5);
+            $gridBottom = $searchBottom; // fallback
+
+            for ($y = min($searchBottom, $imgH - 1); $y > $col['headerBottom']; $y--) {
+                $rgb = imagecolorat($image, min($scanX, $imgW - 1), $y);
+                if (($rgb & 0xFF) < 220) {
+                    $gridBottom = $y + 1;
+                    break;
+                }
+            }
+
             $col['gridBottom'] = $gridBottom;
         }
         unset($col);
 
         Log::debug('Column headers detected', [
             'columns' => $columns,
-            'normalizedHeaderBottom' => $maxHeaderBottom,
-            'gridBottom' => $gridBottom,
         ]);
         return $columns;
     }
@@ -754,6 +743,23 @@ class BubbleSheetService
         if ($totalItems <= 20) return 1;
         if ($totalItems <= 75) return 2;
         return 3;
+    }
+
+    /**
+     * Expected printable width (mm) of a single answer column in the template.
+     * Content width is 186mm (A4 width 210mm - 12mm left - 12mm right padding).
+     * Column gap in CSS is 4mm.
+     */
+    private function getTemplateColumnWidthMm(int $columns): float
+    {
+        $contentWidthMm = 186.0;
+        $gapMm = 4.0;
+
+        if ($columns <= 1) {
+            return $contentWidthMm;
+        }
+
+        return ($contentWidthMm - ($columns - 1) * $gapMm) / $columns;
     }
 
     /**
@@ -941,6 +947,7 @@ class BubbleSheetService
 
         // Use dynamic bubble positions based on column count
         $bubblePositions = $this->calculateBubblePositions($columns, $choicesPerItem);
+        $templateColWidthMm = $this->getTemplateColumnWidthMm($columns);
 
         for ($col = 0; $col < $columns; $col++) {
             $startItem  = $col * $itemsPerColumn + 1;
@@ -965,7 +972,8 @@ class BubbleSheetService
             $rowAreaH = $rowsBottom - $rowsTop;
             $rowH     = $rowAreaH / $itemsInCol;
 
-            $bubbleRx = max(5, (int)(2.7 * $pxPerMm));
+            $colPxPerMm = max(0.1, $colWidth / max(1.0, $templateColWidthMm));
+            $bubbleRx = max(5, (int)(2.7 * $colPxPerMm));
             $bubbleRy = max(5, (int)(2.7 * $pxPerMmV));
 
             // Draw column boundary (detected or calculated)
@@ -975,7 +983,7 @@ class BubbleSheetService
                 $cy = (int)($rowsTop + ($row + 0.5) * $rowH);
 
                 for ($c = 0; $c < $choicesPerItem; $c++) {
-                    $cx = (int)($colLeft + $bubblePositions['centersMm'][$c] * $pxPerMm);
+                    $cx = (int)($colLeft + $bubblePositions['centersMm'][$c] * $colPxPerMm);
                     imagefilledrectangle($image,
                         $cx - $bubbleRx, $cy - $bubbleRy,
                         $cx + $bubbleRx, $cy + $bubbleRy,
@@ -1031,3 +1039,5 @@ class BubbleSheetService
         return $debugPath;
     }
 }
+
+

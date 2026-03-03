@@ -362,9 +362,12 @@ class OMRService
         // Deskew correction — compute skew angle from corner markers
         $skewAngle = $this->computeSkewAngle($bounds, $width, $height);
 
-        // Search region for column header bars (bottom ~50% of content)
-        $searchTop    = $bounds['top'] + (int)($contentH * 0.48);
-        $searchBottom = $bounds['top'] + (int)($contentH * 0.98);
+        // Get template-specific layout params
+        $tplParams = $this->getTemplateParams($totalItems);
+
+        // Search region for column header bars
+        $searchTop    = $bounds['top'] + (int)($contentH * $tplParams['searchTopRatio']);
+        $searchBottom = $bounds['top'] + (int)($contentH * $tplParams['searchBottomRatio']);
 
         // Dynamically detect column header bars for precise column boundaries
         $detectedCols = $this->findColumnHeaders(
@@ -374,7 +377,7 @@ class OMRService
         );
 
         // Bubble center X positions as absolute mm offsets from column left
-        $bubblePositions = $this->calculateBubblePositions($columns, $choicesPerItem);
+        $bubblePositions = $this->calculateBubblePositions($columns, $choicesPerItem, $totalItems);
 
         $answers        = [];
         $confidence     = [];
@@ -402,12 +405,32 @@ class OMRService
                 $rowsBottom = $searchBottom;
             }
 
+            // Apply first-row offset to account for header-to-grid gap
+            $rowsTop += (int)(($tplParams['firstRowOffsetMm'] ?? 0) * $pxPerMmV);
             $rowAreaH = $rowsBottom - $rowsTop;
-            $rowH     = $rowAreaH / $itemsInCol;
+            // Use itemsPerColumn (not itemsInCol) so ALL columns have the same row height
+            $rowH     = $rowAreaH / $itemsPerColumn;
 
-            // Sampling radius: ~2.7mm (90% of 3mm bubble radius)
-            $bubbleRx = max(5, (int)(2.7 * $pxPerMm));
-            $bubbleRy = max(5, (int)(2.7 * $pxPerMmV));
+            if ($col === 0) {
+                Log::debug('OMR grid positioning (col 0)', [
+                    'headerBottom' => $detectedCols[$col]['headerBottom'] ?? 'N/A',
+                    'gridBottom'   => $detectedCols[$col]['gridBottom'] ?? 'N/A',
+                    'rowsTop_after_offset' => $rowsTop,
+                    'rowsBottom'   => $rowsBottom,
+                    'rowAreaH_px'  => $rowAreaH,
+                    'rowAreaH_mm'  => round($rowAreaH / $pxPerMmV, 1),
+                    'rowH_px'      => round($rowH, 1),
+                    'rowH_mm'      => round($rowH / $pxPerMmV, 1),
+                    'itemsInCol'   => $itemsInCol,
+                    'pxPerMmV'     => round($pxPerMmV, 2),
+                    'firstRowCy'   => (int)($rowsTop + 0.5 * $rowH),
+                    'lastRowCy'    => (int)($rowsTop + ($itemsInCol - 0.5) * $rowH),
+                ]);
+            }
+
+            // Sampling radius from template params
+            $bubbleRx = max(5, (int)($tplParams['bubbleRadiusMm'] * $pxPerMm));
+            $bubbleRy = max(5, (int)($tplParams['bubbleRadiusMm'] * $pxPerMmV));
 
             for ($row = 0; $row < $itemsInCol; $row++) {
                 $q  = $startItem + $row;
@@ -418,7 +441,7 @@ class OMRService
 
                 $darknessValues = [];
                 for ($c = 0; $c < $choicesPerItem; $c++) {
-                    $cx = (int)($colLeft + $bubblePositions['centersMm'][$c] * $pxPerMm);
+                    $cx = (int)($colLeft + $bubblePositions['centersMm'][$c] * $colPxPerMm);
                     $darknessValues[$c] = $this->sampleMarkDarkness(
                         $image, $cx, $cy, $bubbleRx, $bubbleRy, $width, $height, $otsuThreshold
                     );
@@ -654,7 +677,8 @@ class OMRService
 
         if ($idBounds) {
             $gridLeft      = $idBounds['left'];
-            $gridRight     = $idBounds['right'];
+            // Constrain gridRight to actual digit columns (idDigits × 8.5mm)
+            $gridRight     = (int)($idBounds['left'] + $idDigits * 8.5 * $bounds['pxPerMm']);
             $headerBottom  = $idBounds['headerBottom'];
         } else {
             // Fallback: proportional estimation
@@ -670,10 +694,10 @@ class OMRService
         $colWMm    = 8.5;   // Column width in mm
         $colWPx    = $colWMm * $pxPerMm;
 
-        // Row layout: first bubble center 3.35mm below header bottom
-        // (0.6mm top margin + 2.75mm half bubble height)
+        // Row layout: first bubble center below header bottom
+        // (margin + half bubble + rendering buffer)
         // Row step: 6.7mm (5.5mm bubble + 2×0.6mm margin)
-        $firstRowOffsetMm = 3.35;
+        $firstRowOffsetMm = 5.0;
         $rowStepMm        = 6.7;
 
         $bubbleRx = max(3, (int)(2.2 * $pxPerMm));
@@ -793,21 +817,32 @@ class OMRService
             $gridRight = array_key_last(array_filter($profile, fn($b) => $b < 120));
         }
 
-        // Find headerBottom: scan down from dark band end to find where it turns bright
+        // Find headerBottom: scan down from dark band end at multiple X positions
+        // and take the DEEPEST (max Y) to avoid stopping too early at a column border
+        $gridW = $gridRight - $gridLeft;
+        $sampleXs = [
+            (int)($gridLeft + $gridW * 0.20),
+            (int)($gridLeft + $gridW * 0.50),
+            (int)($gridLeft + $gridW * 0.80),
+        ];
         $headerBottom = $darkBandEnd + 1;
-        $sampleX = (int)(($gridLeft + $gridRight) / 2);
-        for ($y = $darkBandEnd + 1; $y < min($searchBottom + 200, $imgH); $y++) {
-            $rgb = imagecolorat($image, min($sampleX, $imgW - 1), $y);
-            if (($rgb & 0xFF) > 180) {
-                $headerBottom = $y;
-                break;
+        foreach ($sampleXs as $sx) {
+            $sx = min($sx, $imgW - 1);
+            for ($y = $darkBandEnd + 1; $y < min($searchBottom + 200, $imgH); $y++) {
+                $rgb = imagecolorat($image, $sx, $y);
+                if (($rgb & 0xFF) > 180) {
+                    $headerBottom = max($headerBottom, $y);
+                    break;
+                }
             }
         }
 
         Log::debug('OMR: ID grid header detected', [
             'left' => $gridLeft, 'right' => $gridRight,
             'headerBottom' => $headerBottom,
+            'darkBandEnd' => $darkBandEnd,
             'bandThickness' => $bands[0]['thickness'],
+            'sampleXs' => $sampleXs,
         ]);
 
         return [
@@ -1142,43 +1177,39 @@ class OMRService
             ];
         }
 
-        // Normalize: all column headers end at the same Y coordinate
-        $maxHeaderBottom = max(array_column($columns, 'headerBottom'));
-        foreach ($columns as &$col) {
-            $col['headerBottom'] = $maxHeaderBottom;
-        }
-        unset($col);
-
-        // Step 4: The detected dark header bar left edge marks the true column
-        // container boundary. No left expansion needed — the firstBubbleMm offset
-        // already accounts for the CSS padding + question-num width.
-        // Only expand right edge slightly for anti-aliasing tolerance in gridBottom scan.
+        // Step 4: Normalize column widths using the middle column as reference.
+        // Column 2 is most accurately detected (no page-edge interference).
+        // Use its width for all columns, re-centering each around its midpoint.
+        $refIdx   = (int)(count($columns) / 2); // middle column
+        $refWidth = $columns[$refIdx]['right'] - $columns[$refIdx]['left'];
         for ($i = 0; $i < count($columns); $i++) {
-            $columns[$i]['right'] += 3;
+            if ($i === $refIdx) continue; // don't touch the reference column
+            $center = ($columns[$i]['left'] + $columns[$i]['right']) / 2;
+            $columns[$i]['left']  = (int)($center - $refWidth / 2);
+            $columns[$i]['right'] = (int)($center + $refWidth / 2);
         }
 
-        // Step 5: Find the bottom of the answer grid
-        $firstCol = $columns[0];
-        $scanX = $firstCol['left'] + (int)(($firstCol['right'] - $firstCol['left']) * 0.5);
-        $gridBottom = $searchBottom;
-
-        for ($y = min($searchBottom, $imgH - 1); $y > $maxHeaderBottom; $y--) {
-            $rgb = imagecolorat($image, min($scanX, $imgW - 1), $y);
-            if (($rgb & 0xFF) < 220) {
-                $gridBottom = $y + 1;
-                break;
-            }
-        }
-
+        // Step 5: Find the bottom of each answer column independently.
+        // Do not force a shared bottom Y; perspective/keystone distortion can make
+        // outer columns sit slightly higher/lower than the center column.
         foreach ($columns as &$col) {
+            $scanX = $col['left'] + (int)(($col['right'] - $col['left']) * 0.5);
+            $gridBottom = $searchBottom;
+
+            for ($y = min($searchBottom, $imgH - 1); $y > $col['headerBottom']; $y--) {
+                $rgb = imagecolorat($image, min($scanX, $imgW - 1), $y);
+                if (($rgb & 0xFF) < 220) {
+                    $gridBottom = $y + 1;
+                    break;
+                }
+            }
+
             $col['gridBottom'] = $gridBottom;
         }
         unset($col);
 
         Log::debug('OMR column headers detected', [
-            'columns'                => $columns,
-            'normalizedHeaderBottom' => $maxHeaderBottom,
-            'gridBottom'             => $gridBottom,
+            'columns' => $columns,
         ]);
         return $columns;
     }
@@ -1196,8 +1227,47 @@ class OMRService
     public function inferColumnCount(int $totalItems): int
     {
         if ($totalItems <= 20) return 1;
-        if ($totalItems <= 75) return 2;
+        if ($totalItems <= 30) return 2;
         return 3;
+    }
+
+    /**
+     * Get template layout parameters based on total items.
+     *
+     * 30-item template: standard 6mm bubbles, 2mm gap, grid starts at ~48% of page
+     * 50-item template: compact 4.5mm bubbles, 1.5mm gap, grid starts at ~38% of page
+     *
+     * @return array{firstBubbleMm: float, bubbleStepMm: float, bubbleRadiusMm: float, searchTopRatio: float, searchBottomRatio: float, bubbleDiameterMm: float, bubbleGapMm: float, rowPaddingMm: float}
+     */
+    public function getTemplateParams(int $totalItems): array
+    {
+        if ($totalItems > 30) {
+            // 50-item (compact) template — 3 columns
+            return [
+                'firstBubbleMm'    => 10.5,   // 2.5mm row-pad + 5.5mm question-num + 2.25mm half-bubble + tolerance
+                'bubbleStepMm'     => 6.0,    // 4.5mm bubble + 1.5mm gap
+                'bubbleRadiusMm'   => 2.0,    // sampling radius (~90% of 2.25mm)
+                'searchTopRatio'   => 0.45,   // grid starts ~53% down; search starts a bit above
+                'searchBottomRatio'=> 0.98,
+                'firstRowOffsetMm' => 20.0,   // mm offset from detected header bottom to first row area
+                'bubbleDiameterMm' => 4.5,    // print size
+                'bubbleGapMm'      => 1.5,    // print gap
+                'rowPaddingMm'     => 0.6,    // print row padding
+            ];
+        }
+
+        // 30-item (standard) template
+        return [
+            'firstBubbleMm'    => 10.5,
+            'bubbleStepMm'     => 8.0,    // 6mm bubble + 2mm gap
+            'bubbleRadiusMm'   => 2.7,    // sampling radius (~90% of 3mm)
+            'searchTopRatio'   => 0.48,
+            'searchBottomRatio'=> 0.98,
+            'firstRowOffsetMm' => 0.0,    // no extra offset needed for standard template
+            'bubbleDiameterMm' => 6.0,    // print size
+            'bubbleGapMm'      => 2.0,    // print gap
+            'rowPaddingMm'     => 1.0,    // print row padding
+        ];
     }
 
     /**
@@ -1216,10 +1286,11 @@ class OMRService
      *
      * @return array{firstMm: float, stepMm: float, centersMm: float[]}
      */
-    private function calculateBubblePositions(int $columns, int $choicesPerItem): array
+    private function calculateBubblePositions(int $columns, int $choicesPerItem, int $totalItems = 30): array
     {
-        $firstBubbleMm = 10.5;  // shifted 1mm left for better alignment
-        $bubbleStepMm  = 8.0;   // 6mm bubble + 2mm gap
+        $params = $this->getTemplateParams($totalItems);
+        $firstBubbleMm = $params['firstBubbleMm'];
+        $bubbleStepMm  = $params['bubbleStepMm'];
 
         $centersMm = [];
         for ($c = 0; $c < $choicesPerItem; $c++) {
@@ -1381,8 +1452,9 @@ class OMRService
         imagerectangle($image, $bounds['left'], $bounds['top'], $bounds['right'], $bounds['bottom'], $blueLine);
 
         // === Answer Grid Debug ===
-        $searchTop    = $bounds['top'] + (int)($contentH * 0.48);
-        $searchBottom = $bounds['top'] + (int)($contentH * 0.98);
+        $tplParams = $this->getTemplateParams($totalItems);
+        $searchTop    = $bounds['top'] + (int)($contentH * $tplParams['searchTopRatio']);
+        $searchBottom = $bounds['top'] + (int)($contentH * $tplParams['searchBottomRatio']);
         $itemsPerColumn = (int)ceil($totalItems / $columns);
 
         imagerectangle($image, $bounds['left'], $searchTop, $bounds['right'], $searchBottom, $redLine);
@@ -1393,7 +1465,7 @@ class OMRService
             $width, $height, $columns
         );
 
-        $bubblePositions = $this->calculateBubblePositions($columns, $choicesPerItem);
+        $bubblePositions = $this->calculateBubblePositions($columns, $choicesPerItem, $totalItems);
 
         for ($col = 0; $col < $columns; $col++) {
             $startItem  = $col * $itemsPerColumn + 1;
@@ -1415,11 +1487,14 @@ class OMRService
                 $rowsBottom = $searchBottom;
             }
 
+            // Apply first-row offset to account for header-to-grid gap
+            $rowsTop += (int)(($tplParams['firstRowOffsetMm'] ?? 0) * $pxPerMmV);
             $rowAreaH = $rowsBottom - $rowsTop;
-            $rowH     = $rowAreaH / $itemsInCol;
+            // Use itemsPerColumn (not itemsInCol) so ALL columns have the same row height
+            $rowH     = $rowAreaH / $itemsPerColumn;
 
-            $bubbleRx = max(5, (int)(2.7 * $pxPerMm));
-            $bubbleRy = max(5, (int)(2.7 * $pxPerMmV));
+            $bubbleRx = max(5, (int)($tplParams['bubbleRadiusMm'] * $pxPerMm));
+            $bubbleRy = max(5, (int)($tplParams['bubbleRadiusMm'] * $pxPerMmV));
 
             // Draw column boundary
             imagerectangle($image, $colLeft, $rowsTop - 5, $colLeft + $colWidth, $rowsBottom, $yellow);
@@ -1429,7 +1504,7 @@ class OMRService
                 $cy = $this->applyDeskewY($rawCy, $colLeft + $colWidth / 2, $skewAngle, $bounds);
 
                 for ($c = 0; $c < $choicesPerItem; $c++) {
-                    $cx = (int)($colLeft + $bubblePositions['centersMm'][$c] * $pxPerMm);
+                    $cx = (int)($colLeft + $bubblePositions['centersMm'][$c] * $colPxPerMm);
 
                     // Draw elliptical sampling region (matching OMR circular sampling)
                     imageellipse($image, $cx, $cy, $bubbleRx * 2, $bubbleRy * 2, $redLine);
@@ -1443,7 +1518,8 @@ class OMRService
 
         if ($idBounds) {
             $idGridLeft     = $idBounds['left'];
-            $idGridRight    = $idBounds['right'];
+            // Constrain to actual digit columns (idDigits × 8.5mm)
+            $idGridRight    = (int)($idBounds['left'] + $idDigits * 8.5 * $pxPerMm);
             $idHeaderBottom = $idBounds['headerBottom'];
         } else {
             $idGridLeft     = $bounds['left'];
@@ -1451,9 +1527,9 @@ class OMRService
             $idHeaderBottom = $bounds['top'] + (int)($contentH * 0.21);
         }
 
-        // CSS: column width 8.5mm, row step 6.7mm, first row offset 3.35mm
+        // CSS: column width 8.5mm, row step 6.7mm, first row offset 5.0mm
         $idColWPx          = 8.5 * $pxPerMm;
-        $idFirstRowOffMm   = 3.35;
+        $idFirstRowOffMm   = 5.0;
         $idRowStepMm       = 6.7;
 
         $idBubbleRx = max(3, (int)(2.2 * $pxPerMm));
@@ -1482,3 +1558,4 @@ class OMRService
         return $debugPath;
     }
 }
+

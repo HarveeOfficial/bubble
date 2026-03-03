@@ -189,7 +189,7 @@
         .question-row {
             display: flex;
             align-items: center;
-            padding: 1mm 2.5mm;
+            padding: {{ $totalItems > 30 ? '0.6mm' : '1mm' }} 2.5mm;
             border-bottom: 1px solid #eee;
         }
         .question-row:last-child {
@@ -206,30 +206,30 @@
             background: #f0f0f0;
         }
         .question-num {
-            width: 7mm;
+            width: {{ $totalItems > 30 ? '5.5mm' : '7mm' }};
             text-align: right;
             font-weight: 700;
-            font-size: 10px;
-            padding-right: 2mm;
+            font-size: {{ $totalItems > 30 ? '8px' : '10px' }};
+            padding-right: {{ $totalItems > 30 ? '1.5mm' : '2mm' }};
             color: #333;
             flex-shrink: 0;
         }
         .bubbles {
             display: flex;
-            gap: 2mm;
+            gap: {{ $totalItems > 30 ? '1.5mm' : '2mm' }};
             align-items: center;
         }
 
         /* ===== Individual Bubble ===== */
         .bubble {
-            width: 6mm;
-            height: 6mm;
+            width: {{ $totalItems > 30 ? '4.5mm' : '6mm' }};
+            height: {{ $totalItems > 30 ? '4.5mm' : '6mm' }};
             border: 1.5px solid #000;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 8px;
+            font-size: {{ $totalItems > 30 ? '6.5px' : '8px' }};
             font-weight: 600;
             color: #555;
             position: relative;
