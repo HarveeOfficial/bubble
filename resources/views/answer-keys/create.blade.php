@@ -33,10 +33,14 @@
 
             <div>
                 <label for="total_items" class="block text-sm font-medium text-gray-700 mb-1">Total Items <span class="text-red-500">*</span></label>
-                <input type="number" name="total_items" id="total_items" value="{{ old('total_items', 10) }}" min="1" max="200" required
+                <select name="total_items" id="total_items" required
                        class="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm border px-3 py-2">
+                    <option value="30" {{ old('total_items') == 30 ? 'selected' : '' }}>30</option>
+                    <option value="50" {{ old('total_items') == 50 ? 'selected' : '' }}>50</option>
+                </select>
                 @error('total_items') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
             </div>
+
 
             <div>
                 <label for="choices_per_item" class="block text-sm font-medium text-gray-700 mb-1">Choices per Item <span class="text-red-500">*</span></label>

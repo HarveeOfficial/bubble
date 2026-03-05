@@ -8,6 +8,8 @@ use App\Models\Student;
 use App\Services\OMRService;
 use Illuminate\Http\Request;
 
+use App\Jobs\ProcessBubbleSheetJob;
+
 class ExamController extends Controller
 {
     public function __construct(
@@ -102,15 +104,12 @@ class ExamController extends Controller
     {
         $validated = $request->validate([
             'answer_key_id' => 'required|exists:answer_keys,id',
-            'bubble_sheets' => 'required|array|min:1',
+            'bubble_sheets' => 'required|array|min:1|max:100',
             'bubble_sheets.*' => 'required|image|mimes:jpeg,png,jpg,gif,bmp,webp|max:10240',
         ]);
 
-        $results = [
-            'processed' => 0,
-            'failed' => 0,
-            'total' => count($request->file('bubble_sheets')),
-        ];
+        $total = count($request->file('bubble_sheets'));
+        $queued = 0;
 
         foreach ($request->file('bubble_sheets') as $file) {
             $path = $file->store('bubble-sheets', 'public');
@@ -121,23 +120,13 @@ class ExamController extends Controller
                 'status' => 'pending',
             ]);
 
-            // Process using OMR and auto-detect student ID from the bubble grid
-            $exam = $this->omrService->processSheet($exam);
-
-            if ($exam->status === 'processed') {
-                $results['processed']++;
-            } else {
-                $results['failed']++;
-            }
-        }
-
-        $message = "Batch complete: {$results['processed']}/{$results['total']} sheets processed successfully.";
-        if ($results['failed'] > 0) {
-            $message .= " {$results['failed']} sheet(s) failed.";
+            // Dispatch job to queue instead of processing immediately
+            ProcessBubbleSheetJob::dispatch($exam);
+            $queued++;
         }
 
         return redirect()->route('exams.index')
-            ->with($results['failed'] > 0 ? 'warning' : 'success', $message);
+            ->with('success', "✓ All {$queued} sheets queued for processing! Results will appear as they're completed. Check back in a moment.");
     }
 
     public function show(Exam $exam)

@@ -19,7 +19,7 @@
             <div class="flex justify-between h-16">
                 <div class="flex items-center space-x-8">
                     <a href="{{ route('dashboard') }}" class="text-xl font-bold text-indigo-600">
-                        &#9899; OMR Sheet Checker
+                       OMR Checker
                     </a>
                     <div class="hidden sm:flex space-x-4">
                         <a href="{{ route('dashboard') }}"

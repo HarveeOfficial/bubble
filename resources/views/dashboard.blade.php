@@ -31,7 +31,7 @@
                 </svg>
             </div>
             <div class="ml-4">
-                <p class="text-sm font-medium text-gray-500">Total Exams</p>
+                <p class="text-sm font-medium text-gray-500">Exams</p>
                 <p class="text-2xl font-bold text-gray-900">{{ $examCount }}</p>
             </div>
         </div>
