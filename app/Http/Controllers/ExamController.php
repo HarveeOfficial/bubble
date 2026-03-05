@@ -241,6 +241,12 @@ class ExamController extends Controller
             ? $this->omrService->inferColumnCount($exam->answerKey->total_items)
             : 2;
 
+        // Delete old debug image to force regeneration
+        $debugPath = preg_replace('/\.(jpe?g|png|gif|bmp|webp)$/i', '_debug.png', $imagePath);
+        if (file_exists($debugPath)) {
+            unlink($debugPath);
+        }
+
         $debugPath = $this->omrService->generateDebugImage(
             $imagePath,
             $exam->answerKey->total_items ?? 30,
@@ -255,7 +261,9 @@ class ExamController extends Controller
 
         return response()->file($debugPath, [
             'Content-Type' => 'image/png',
-            'Cache-Control' => 'no-cache',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
+            'Expires' => 'Thu, 01 Jan 1970 00:00:00 GMT',
         ]);
     }
 }

@@ -378,6 +378,19 @@ class OMRService
 
         // Bubble center X positions as absolute mm offsets from column left
         $bubblePositions = $this->calculateBubblePositions($columns, $choicesPerItem, $totalItems);
+        $templateColWidthMm = $this->getTemplateColumnWidthMm($columns);
+
+        // Compute column LEFT positions mathematically from the known print layout.
+        // CSS: .bubble-grid { display: flex; gap: 4mm; } .bubble-column { flex: 1; }
+        // Content width = 186mm, gap = 4mm
+        // Column width = (186 - (columns-1)*4) / columns
+        // Column N left = N * (colWidthMm + 4mm)
+        $colGapMm = 4.0;
+        $colWidthMm = (186.0 - ($columns - 1) * $colGapMm) / $columns;
+        $computedColLefts = [];
+        for ($i = 0; $i < $columns; $i++) {
+            $computedColLefts[$i] = (int)($bounds['left'] + $i * ($colWidthMm + $colGapMm) * $pxPerMm);
+        }
 
         $answers        = [];
         $confidence     = [];
@@ -390,17 +403,15 @@ class OMRService
             $itemsInCol = $endItem - $startItem + 1;
             if ($itemsInCol <= 0) continue;
 
-            // Use detected column boundaries when available, else calculated
+            // X position: computed from template layout (precise)
+            $colLeft  = $computedColLefts[$col];
+            $colWidth = (int)($colWidthMm * $pxPerMm);
+
+            // Y position: from detected header bar (precise vertical detection)
             if (isset($detectedCols[$col])) {
-                $colLeft    = $detectedCols[$col]['left'];
-                $colWidth   = $detectedCols[$col]['right'] - $colLeft;
                 $rowsTop    = $detectedCols[$col]['headerBottom'];
                 $rowsBottom = $detectedCols[$col]['gridBottom'] ?? $searchBottom;
             } else {
-                $colGapPx   = (int)($contentW * 0.022);
-                $calcColW   = (int)(($contentW - ($columns - 1) * $colGapPx) / $columns);
-                $colLeft    = $bounds['left'] + $col * ($calcColW + $colGapPx);
-                $colWidth   = $calcColW;
                 $rowsTop    = $searchTop + (int)(($searchBottom - $searchTop) * 0.12);
                 $rowsBottom = $searchBottom;
             }
@@ -428,8 +439,11 @@ class OMRService
                 ]);
             }
 
-            // Sampling radius from template params
-            $bubbleRx = max(5, (int)($tplParams['bubbleRadiusMm'] * $pxPerMm));
+            // Use per-column horizontal scale to handle perspective distortion.
+            $colPxPerMm = max(0.1, $colWidth / max(1.0, $templateColWidthMm));
+
+            // Sampling radius from template params (X uses local column scale).
+            $bubbleRx = max(5, (int)($tplParams['bubbleRadiusMm'] * $colPxPerMm));
             $bubbleRy = max(5, (int)($tplParams['bubbleRadiusMm'] * $pxPerMmV));
 
             for ($row = 0; $row < $itemsInCol; $row++) {
@@ -1271,6 +1285,23 @@ class OMRService
     }
 
     /**
+     * Expected printable width (mm) of a single answer column in the template.
+     * Content width is 186mm (A4 width 210mm - 12mm left - 12mm right padding).
+     * Column gap in CSS is 4mm.
+     */
+    private function getTemplateColumnWidthMm(int $columns): float
+    {
+        $contentWidthMm = 186.0;
+        $gapMm = 4.0;
+
+        if ($columns <= 1) {
+            return $contentWidthMm;
+        }
+
+        return ($contentWidthMm - ($columns - 1) * $gapMm) / $columns;
+    }
+
+    /**
      * Calculate bubble center positions as absolute mm offsets from column left edge.
      *
      * CSS layout (fixed mm values, box-sizing: border-box on all elements):
@@ -1466,6 +1497,15 @@ class OMRService
         );
 
         $bubblePositions = $this->calculateBubblePositions($columns, $choicesPerItem, $totalItems);
+        $templateColWidthMm = $this->getTemplateColumnWidthMm($columns);
+
+        // Compute column positions from template layout (same as detectAnswers)
+        $colGapMm = 4.0;
+        $colWidthMm = (186.0 - ($columns - 1) * $colGapMm) / $columns;
+        $computedColLefts = [];
+        for ($i = 0; $i < $columns; $i++) {
+            $computedColLefts[$i] = (int)($bounds['left'] + $i * ($colWidthMm + $colGapMm) * $pxPerMm);
+        }
 
         for ($col = 0; $col < $columns; $col++) {
             $startItem  = $col * $itemsPerColumn + 1;
@@ -1473,16 +1513,15 @@ class OMRService
             $itemsInCol = $endItem - $startItem + 1;
             if ($itemsInCol <= 0) continue;
 
+            // Prefer detected column boundaries over computed positions
             if (isset($detectedCols[$col])) {
                 $colLeft    = $detectedCols[$col]['left'];
-                $colWidth   = $detectedCols[$col]['right'] - $colLeft;
+                $colWidth   = $detectedCols[$col]['right'] - $detectedCols[$col]['left'];
                 $rowsTop    = $detectedCols[$col]['headerBottom'];
                 $rowsBottom = $detectedCols[$col]['gridBottom'] ?? $searchBottom;
             } else {
-                $colGapPx   = (int)($contentW * 0.022);
-                $calcColW   = (int)(($contentW - ($columns - 1) * $colGapPx) / $columns);
-                $colLeft    = $bounds['left'] + $col * ($calcColW + $colGapPx);
-                $colWidth   = $calcColW;
+                $colLeft    = $computedColLefts[$col];
+                $colWidth   = (int)($colWidthMm * $pxPerMm);
                 $rowsTop    = $searchTop + (int)(($searchBottom - $searchTop) * 0.12);
                 $rowsBottom = $searchBottom;
             }
@@ -1493,7 +1532,8 @@ class OMRService
             // Use itemsPerColumn (not itemsInCol) so ALL columns have the same row height
             $rowH     = $rowAreaH / $itemsPerColumn;
 
-            $bubbleRx = max(5, (int)($tplParams['bubbleRadiusMm'] * $pxPerMm));
+            $colPxPerMm = max(0.1, $colWidth / max(1.0, $templateColWidthMm));
+            $bubbleRx = max(5, (int)($tplParams['bubbleRadiusMm'] * $colPxPerMm));
             $bubbleRy = max(5, (int)($tplParams['bubbleRadiusMm'] * $pxPerMmV));
 
             // Draw column boundary
@@ -1558,4 +1598,10 @@ class OMRService
         return $debugPath;
     }
 }
+
+
+
+
+
+
 

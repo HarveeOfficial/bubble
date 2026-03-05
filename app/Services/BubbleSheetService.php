@@ -153,8 +153,16 @@ class BubbleSheetService
         );
 
         // Bubble center X positions as absolute mm offsets from column left
-        $bubblePositions = $this->calculateBubblePositions($columns, $choicesPerItem);
+        $bubblePositions = $this->calculateBubblePositions($columns, $choicesPerItem, $totalItems);
         $templateColWidthMm = $this->getTemplateColumnWidthMm($columns);
+
+        // Compute column LEFT positions mathematically as fallback.
+        $colGapMm = 4.0;
+        $colWidthMm = (186.0 - ($columns - 1) * $colGapMm) / $columns;
+        $computedColLefts = [];
+        for ($i = 0; $i < $columns; $i++) {
+            $computedColLefts[$i] = (int)($bounds['left'] + $i * ($colWidthMm + $colGapMm) * $pxPerMm);
+        }
 
         $answers = [];
 
@@ -164,18 +172,18 @@ class BubbleSheetService
             $itemsInCol = $endItem - $startItem + 1;
             if ($itemsInCol <= 0) continue;
 
-            // Use detected column boundaries when available, else calculated
+            // Prefer detected column boundaries (from header bar scan) over
+            // mathematically computed positions. Detected positions naturally
+            // account for perspective/lens distortion in photographed sheets.
             if (isset($detectedCols[$col])) {
-                $colLeft   = $detectedCols[$col]['left'];
-                $colWidth  = $detectedCols[$col]['right'] - $colLeft;
-                $rowsTop   = $detectedCols[$col]['headerBottom'];
+                $colLeft    = $detectedCols[$col]['left'];
+                $colWidth   = $detectedCols[$col]['right'] - $detectedCols[$col]['left'];
+                $rowsTop    = $detectedCols[$col]['headerBottom'];
                 $rowsBottom = $detectedCols[$col]['gridBottom'] ?? $searchBottom;
             } else {
-                $colGapPx  = (int)($contentW * 0.022);
-                $calcColW  = (int)(($contentW - ($columns - 1) * $colGapPx) / $columns);
-                $colLeft   = $bounds['left'] + $col * ($calcColW + $colGapPx);
-                $colWidth  = $calcColW;
-                $rowsTop   = $searchTop + (int)(($searchBottom - $searchTop) * 0.12);
+                $colLeft    = $computedColLefts[$col];
+                $colWidth   = (int)($colWidthMm * $pxPerMm);
+                $rowsTop    = $searchTop + (int)(($searchBottom - $searchTop) * 0.12);
                 $rowsBottom = $searchBottom;
             }
 
@@ -765,23 +773,34 @@ class BubbleSheetService
     /**
      * Calculate bubble center positions as absolute mm offsets from column left edge.
      *
-     * CSS layout (fixed mm values, box-sizing: border-box on all elements):
-     * - Row left padding: 2.5mm
-     * - Question number width: 7mm (includes 2mm padding-right, border-box)
-     * - Bubble diameter: 6mm (center at +3mm from edge)
-     * - Gap between bubbles: 2mm
-     * - First bubble center from left: 2.5 + 7 + 3 = 12.5mm
-     * - Step between bubble centers: 6 + 2 = 8mm
+     * CSS layout varies based on total items (box-sizing: border-box):
      *
-     * These are absolute mm values independent of page/column width,
+     * For ≤30 items:
+     * - Row left padding: 2.5mm, question-num: 7mm, bubble: 6mm, gap: 2mm
+     * - First center: 2.5+7+3 = 12.5mm, step: 6+2 = 8mm
+     *
+     * For >30 items:
+     * - Row left padding: 2.5mm, question-num: 5.5mm, bubble: 4.5mm, gap: 1.5mm
+     * - First center: 2.5+5.5+2.25 = 10.25mm, step: 4.5+1.5 = 6mm
+     *
+     * These are absolute mm values from column left edge,
      * converted to pixels using pxPerMm from corner marker detection.
      *
      * @return array{firstMm: float, stepMm: float, centersMm: float[]}
      */
-    private function calculateBubblePositions(int $columns, int $choicesPerItem): array
+    private function calculateBubblePositions(int $columns, int $choicesPerItem, int $totalItems = 30): array
     {
-        $firstBubbleMm = 10.5;  // shifted 1mm left for better alignment
-        $bubbleStepMm  = 8.0;   // 6mm bubble + 2mm gap
+        if ($totalItems > 30) {
+            // CSS for >30 items: question-num 5.5mm (border-box, 1.5mm padding-right),
+            // bubble 4.5mm diameter, gap 1.5mm, row left-padding 2.5mm
+            $firstBubbleMm = 10.25;  // 2.5 + 5.5 + 2.25
+            $bubbleStepMm  = 6.0;    // 4.5 + 1.5
+        } else {
+            // CSS for ≤30 items: question-num 7mm (border-box, 2mm padding-right),
+            // bubble 6mm diameter, gap 2mm, row left-padding 2.5mm
+            $firstBubbleMm = 10.5;   // tuned from theoretical 12.5mm
+            $bubbleStepMm  = 8.0;    // 6 + 2
+        }
 
         $centersMm = [];
         for ($c = 0; $c < $choicesPerItem; $c++) {
@@ -945,9 +964,17 @@ class BubbleSheetService
             $width, $height, $columns
         );
 
-        // Use dynamic bubble positions based on column count
-        $bubblePositions = $this->calculateBubblePositions($columns, $choicesPerItem);
+        // Use dynamic bubble positions based on column count and total items
+        $bubblePositions = $this->calculateBubblePositions($columns, $choicesPerItem, $totalItems);
         $templateColWidthMm = $this->getTemplateColumnWidthMm($columns);
+
+        // Compute column LEFT positions mathematically as fallback.
+        $colGapMm = 4.0;
+        $colWidthMm = (186.0 - ($columns - 1) * $colGapMm) / $columns;
+        $computedColLefts = [];
+        for ($i = 0; $i < $columns; $i++) {
+            $computedColLefts[$i] = (int)($bounds['left'] + $i * ($colWidthMm + $colGapMm) * $pxPerMm);
+        }
 
         for ($col = 0; $col < $columns; $col++) {
             $startItem  = $col * $itemsPerColumn + 1;
@@ -955,17 +982,16 @@ class BubbleSheetService
             $itemsInCol = $endItem - $startItem + 1;
             if ($itemsInCol <= 0) continue;
 
+            // Prefer detected column boundaries over computed positions
             if (isset($detectedCols[$col])) {
-                $colLeft   = $detectedCols[$col]['left'];
-                $colWidth  = $detectedCols[$col]['right'] - $colLeft;
-                $rowsTop   = $detectedCols[$col]['headerBottom'];
+                $colLeft    = $detectedCols[$col]['left'];
+                $colWidth   = $detectedCols[$col]['right'] - $detectedCols[$col]['left'];
+                $rowsTop    = $detectedCols[$col]['headerBottom'];
                 $rowsBottom = $detectedCols[$col]['gridBottom'] ?? $searchBottom;
             } else {
-                $colGapPx  = (int)($contentW * 0.022);
-                $calcColW  = (int)(($contentW - ($columns - 1) * $colGapPx) / $columns);
-                $colLeft   = $bounds['left'] + $col * ($calcColW + $colGapPx);
-                $colWidth  = $calcColW;
-                $rowsTop   = $searchTop + (int)(($searchBottom - $searchTop) * 0.12);
+                $colLeft    = $computedColLefts[$col];
+                $colWidth   = (int)($colWidthMm * $pxPerMm);
+                $rowsTop    = $searchTop + (int)(($searchBottom - $searchTop) * 0.12);
                 $rowsBottom = $searchBottom;
             }
 
@@ -976,8 +1002,8 @@ class BubbleSheetService
             $bubbleRx = max(5, (int)(2.7 * $colPxPerMm));
             $bubbleRy = max(5, (int)(2.7 * $pxPerMmV));
 
-            // Draw column boundary (detected or calculated)
-            imagerectangle($image, $colLeft, $rowsTop - 5, $colLeft + $colWidth, $rowsBottom, $yellow);
+            // Draw column boundary (detected or calculated) - use shared searchBottom for alignment
+            imagerectangle($image, $colLeft, $rowsTop - 80, $colLeft + $colWidth, $searchBottom, $yellow);
 
             for ($row = 0; $row < $itemsInCol; $row++) {
                 $cy = (int)($rowsTop + ($row + 0.5) * $rowH);
