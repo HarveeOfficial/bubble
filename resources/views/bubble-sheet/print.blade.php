@@ -34,8 +34,8 @@
             height: 12mm;
             border: 2.5px solid #000;
         }
-        .corner-marker.top-left     { top: 5mm;  left: 5mm;  border-right: none; border-bottom: none; }
-        .corner-marker.top-right    { top: 5mm;  right: 5mm; border-left: none;  border-bottom: none; }
+        .corner-marker.top-left     { top: 10mm;  left: 5mm;  border-right: none; border-bottom: none; }
+        .corner-marker.top-right    { top: 10mm;  right: 5mm; border-left: none;  border-bottom: none; }
         .corner-marker.bottom-left  { bottom: 5mm; left: 5mm; border-right: none; border-top: none; }
         .corner-marker.bottom-right { bottom: 5mm; right: 5mm; border-left: none; border-top: none; }
 
